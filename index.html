@@ -2,7 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <!-- Installable web app: opened from the home screen it runs full screen (the only way on iPhone) -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Mini Karting">
+  <meta name="theme-color" content="#06070a">
   <title>Mini Karting Championship</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -134,6 +143,7 @@
     .touch-only { display: none !important; }
     body.is-touch .touch-only { display: flex !important; }
     body.is-touch .desktop-only { display: none !important; }
+    body.is-touch #hud-overlay { padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); padding-top: max(6px, env(safe-area-inset-top)); }
     #touch-steer { left: max(12px, env(safe-area-inset-left)); bottom: max(12px, env(safe-area-inset-bottom)); touch-action: none; }
     #touch-pedals { right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); }
     #touch-manual-cluster { right: calc(max(12px, env(safe-area-inset-right)) + 250px); bottom: 14px; }
@@ -426,6 +436,9 @@
   <div id="menu-modal" class="absolute inset-0 z-30 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md transition-opacity duration-300">
     <div class="menu-card glass-panel max-w-2xl w-full rounded-3xl p-6 md:p-8 text-center border border-white/20 shadow-2xl relative overflow-hidden max-h-[92vh] overflow-y-auto">
       
+      <button id="btn-menu-fullscreen" class="touch-only absolute top-3 right-3 glass-btn rounded-xl px-3 h-9 items-center gap-1.5 text-[10px] font-racing font-bold text-slate-100 z-10">
+        <i class="fa-solid fa-expand"></i> FULL SCREEN
+      </button>
       <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/20 text-sky-400 border border-sky-400/30 text-xs font-semibold uppercase tracking-wider mb-2">
         <i class="fa-solid fa-trophy"></i> Grand Prix Pro Championship
       </div>
@@ -584,6 +597,20 @@
         positions are sent). The host runs the bots and the start lights, so the host should keep this tab open and in front.
         Ping shows each friend's round-trip delay to the host.
       </p>
+    </div>
+  </div>
+
+  <!-- iPhone / iPad: how to get full screen -->
+  <div id="ios-fs-modal" class="absolute inset-0 z-50 hidden items-center justify-center p-4 bg-slate-950/90 backdrop-blur-sm">
+    <div class="glass-panel max-w-md w-full rounded-3xl p-5 border border-white/20 text-left max-h-[92vh] overflow-y-auto">
+      <h2 class="font-racing text-xl font-black text-white mb-2"><i class="fa-solid fa-expand text-sky-400 mr-2"></i>FULL SCREEN ON iPHONE</h2>
+      <p class="text-xs text-slate-300 mb-3">Safari doesn't let websites go full screen on iPhone, but you can install the game — it then opens full screen like an app:</p>
+      <ol class="text-sm text-slate-200 space-y-2 mb-4 list-decimal pl-5">
+        <li>Tap the <b>Share</b> button <i class="fa-solid fa-arrow-up-from-bracket text-sky-300"></i> in Safari's toolbar.</li>
+        <li>Choose <b>Add to Home Screen</b> <i class="fa-regular fa-square-plus text-sky-300"></i>, then <b>Add</b>.</li>
+        <li>Open <b>Mini Karting</b> from your home screen and turn the phone sideways.</li>
+      </ol>
+      <button id="ios-fs-close" class="w-full py-2.5 rounded-xl font-racing font-bold text-sm text-slate-900 bg-amber-400 hover:bg-amber-300">GOT IT</button>
     </div>
   </div>
 
@@ -1922,28 +1949,30 @@
     // ---------------- Graphics quality ----------------
     const IS_TOUCH = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     const IS_MOBILE = IS_TOUCH && window.matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
-    //  maxPR/minPR : render-resolution range (the game moves inside it to hold a smooth frame rate)
+    //  pr      : render resolution (pixels per screen point, capped by the screen's own density).
+    //            Never reduced below this — the old dynamic resolution made the picture pixelated.
     //  lodNear/lodFar : distances where karts switch to the light / tiny model
     const QUALITY_PRESETS = {
-      high:   { maxPR: 1.75, minPR: 0.9,  shadows: true,  shadowSize: 2048, soft: true,  lodNear: 18, lodFar: 70, crowd: true },
-      medium: { maxPR: 1.25, minPR: 0.7,  shadows: true,  shadowSize: 1024, soft: false, lodNear: 9,  lodFar: 45, crowd: true },
-      low:    { maxPR: 1.0,  minPR: 0.55, shadows: false, shadowSize: 1024, soft: false, lodNear: 0,  lodFar: 28, crowd: false }
+      high:   { pr: 2,    shadows: true,  shadowSize: 2048, lodNear: 18, lodFar: 70, crowd: true },
+      medium: { pr: 1.5,  shadows: true,  shadowSize: 1024, lodNear: 9,  lodFar: 45, crowd: true },
+      low:    { pr: 1.25, shadows: false, shadowSize: 1024, lodNear: 0,  lodFar: 28, crowd: false }
     };
+    const QUALITY_ORDER = ['high', 'medium', 'low'];
     let qualitySetting = 'auto';
     try { qualitySetting = localStorage.getItem('mkc_quality') || 'auto'; } catch (e) {}
+    // Auto starts at High on computers and Medium on phones, then steps down a preset only if the frame rate
+    // stays low (it changes shadows / detail, not the sharpness of the image)
+    let autoLevel = IS_MOBILE ? 'medium' : 'high';
     let Q = QUALITY_PRESETS.high, pixelRatioNow = 1;
-    const resolveQuality = () => qualitySetting === 'auto' ? (IS_MOBILE ? 'low' : 'high') : qualitySetting;
+    const resolveQuality = () => qualitySetting === 'auto' ? autoLevel : qualitySetting;
 
     function applyQuality() {
-      const prev = Q;
       Q = QUALITY_PRESETS[resolveQuality()] || QUALITY_PRESETS.high;
-      pixelRatioNow = Math.min(window.devicePixelRatio || 1, Q.maxPR);
+      pixelRatioNow = Math.max(1, Math.min(window.devicePixelRatio || 1, Q.pr));
       renderer.setPixelRatio(pixelRatioNow);
       renderer.setSize(window.innerWidth, window.innerHeight);
-      const shadowType = Q.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
-      const needsRecompile = renderer.shadowMap.enabled !== Q.shadows || renderer.shadowMap.type !== shadowType;
+      const needsRecompile = renderer.shadowMap.enabled !== Q.shadows;
       renderer.shadowMap.enabled = Q.shadows;
-      renderer.shadowMap.type = shadowType;
       if (dirLight) {
         dirLight.castShadow = Q.shadows;
         if (dirLight.shadow.mapSize.width !== Q.shadowSize) {
@@ -1957,35 +1986,30 @@
         b.className = `quality-btn py-1.5 rounded-lg font-racing text-[10px] font-bold transition-all ${on ? 'bg-emerald-400 text-slate-950' : 'glass-btn text-slate-300'}`;
       });
       const lbl = document.getElementById('quality-auto-note');
-      if (lbl) lbl.innerText = qualitySetting === 'auto' ? `Auto picked ${resolveQuality().toUpperCase()} for this device` : '';
+      if (lbl) lbl.innerText = qualitySetting === 'auto' ? `Auto is using ${resolveQuality().toUpperCase()} on this device` : '';
     }
     function setQuality(q) {
       qualitySetting = q;
+      if (q === 'auto') autoLevel = IS_MOBILE ? 'medium' : 'high';
       try { localStorage.setItem('mkc_quality', q); } catch (e) {}
       applyQuality();
     }
 
-    // Dynamic resolution: every second, if the frame rate dropped below ~48 fps lower the internal
-    // render resolution a step; when it is comfortably smooth again, raise it back up.
-    const perf = { acc: 0, frames: 0, cooldown: 2, fps: 60 };
-    function adaptResolution(frameSec) {
+    // Frame-rate watch (Auto only): 3 s in a row under ~45 fps while racing → one preset lower;
+    // 12 s comfortably smooth → one preset back up (never above the starting one)
+    const perf = { acc: 0, frames: 0, fps: 60, slow: 0, fast: 0 };
+    function watchFrameRate(frameSec) {
       if (document.hidden || frameSec <= 0 || frameSec > 0.5) return;
-      perf.acc += frameSec; perf.frames++; perf.cooldown -= frameSec;
+      perf.acc += frameSec; perf.frames++;
       if (perf.acc < 1) return;
       perf.fps = perf.frames / perf.acc; perf.acc = 0; perf.frames = 0;
       const fpsEl = document.getElementById('fps-counter');
-      if (fpsEl && !fpsEl.classList.contains('hidden')) fpsEl.innerText = `${Math.round(perf.fps)} FPS · ${Math.round(pixelRatioNow * 100)}% res`;
-      if (perf.cooldown > 0) return;
-      const ceiling = Math.min(window.devicePixelRatio || 1, Q.maxPR);
-      let next = pixelRatioNow;
-      if (perf.fps < 48 && pixelRatioNow > Q.minPR + 0.01) next = Math.max(Q.minPR, pixelRatioNow - 0.15);
-      else if (perf.fps > 57 && pixelRatioNow < ceiling - 0.01) next = Math.min(ceiling, pixelRatioNow + 0.1);
-      if (next !== pixelRatioNow) {
-        perf.cooldown = next < pixelRatioNow ? 2 : 4;   // drop quickly, climb back slowly
-        pixelRatioNow = next;
-        renderer.setPixelRatio(pixelRatioNow);
-        renderer.setSize(window.innerWidth, window.innerHeight);
-      }
+      if (fpsEl && !fpsEl.classList.contains('hidden')) fpsEl.innerText = `${Math.round(perf.fps)} FPS · ${resolveQuality().toUpperCase()} · ${pixelRatioNow}x`;
+      if (qualitySetting !== 'auto' || raceState !== 'RACING') { perf.slow = perf.fast = 0; return; }
+      const idx = QUALITY_ORDER.indexOf(autoLevel), top = QUALITY_ORDER.indexOf(IS_MOBILE ? 'medium' : 'high');
+      if (perf.fps < 45) { perf.slow++; perf.fast = 0; } else if (perf.fps > 57) { perf.fast++; perf.slow = 0; } else { perf.slow = perf.fast = 0; }
+      if (perf.slow >= 3 && idx < QUALITY_ORDER.length - 1) { autoLevel = QUALITY_ORDER[idx + 1]; perf.slow = 0; applyQuality(); }
+      else if (perf.fast >= 12 && idx > top) { autoLevel = QUALITY_ORDER[idx - 1]; perf.fast = 0; applyQuality(); }
     }
 
     // Karts close to the camera use the full model, further away the light / tiny one
@@ -2014,12 +2038,12 @@
       camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.2, 3000);
       camera.position.set(0, 8, -14);
 
-      // Phones skip MSAA (big cost on high-density screens); everything else is set by applyQuality()
-      renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: !IS_MOBILE, powerPreference: 'high-performance' });
+      // Edge smoothing (MSAA) everywhere — without it phones looked jagged; the rest is set by applyQuality()
+      renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, powerPreference: 'high-performance' });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(1);
       renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.shadowMap.type = THREE.PCFShadowMap;   // filtered but much cheaper than PCFSoft
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.15;
 
@@ -2213,10 +2237,12 @@
         return m;
       };
       const layer = (k) => ({ polygonOffset: true, polygonOffsetFactor: -1 * k, polygonOffsetUnits: -4 * k });
-      mkMesh(solid, new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.85, metalness: 0.05 }));
+      // Road, kerbs, run-off, terrain and mountains cover most of the screen: Lambert lighting looks the same on
+      // these matte surfaces and is much cheaper per pixel than the PBR material (leaves room for full resolution)
+      mkMesh(solid, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
       // Draw order + depth offset keep the paint layers stable on top of the asphalt at any distance
-      mkMesh(paint1, new THREE.MeshStandardMaterial(Object.assign({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.8, metalness: 0.05 }, layer(1)))).renderOrder = 1;
-      mkMesh(paint2, new THREE.MeshStandardMaterial(Object.assign({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.75, metalness: 0.05 }, layer(2)))).renderOrder = 2;
+      mkMesh(paint1, new THREE.MeshLambertMaterial(Object.assign({ vertexColors: true, side: THREE.DoubleSide }, layer(1)))).renderOrder = 1;
+      mkMesh(paint2, new THREE.MeshLambertMaterial(Object.assign({ vertexColors: true, side: THREE.DoubleSide }, layer(2)))).renderOrder = 2;
       mkMesh(glow, new THREE.MeshBasicMaterial(Object.assign({ vertexColors: true, side: THREE.DoubleSide }, layer(3)))).renderOrder = 3;
       if (padTop.v.length) mkMesh(padTop, new THREE.MeshBasicMaterial(Object.assign({ vertexColors: true, side: THREE.DoubleSide }, layer(4)))).renderOrder = 4;
 
@@ -2289,9 +2315,9 @@
         }
         tg.setAttribute('color', new THREE.BufferAttribute(cols, 3));
         tg.computeVertexNormals();
-        const terrain = new THREE.Mesh(tg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0.02 }));
+        const terrain = new THREE.Mesh(tg, new THREE.MeshLambertMaterial({ vertexColors: true }));
         terrain.receiveShadow = true; group.add(terrain);
-        const far = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: track.groundColor, roughness: 1 }));
+        const far = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: track.groundColor }));
         far.position.y = farY; far.receiveShadow = true; group.add(far);
       }
 
@@ -2365,7 +2391,7 @@
         mg.setAttribute('position', new THREE.Float32BufferAttribute(mPos, 3));
         mg.setAttribute('color', new THREE.Float32BufferAttribute(mCol, 3));
         mg.computeVertexNormals();
-        group.add(new THREE.Mesh(mg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true })));
+        group.add(new THREE.Mesh(mg, new THREE.MeshLambertMaterial({ vertexColors: true })));   // per-face normals = faceted look
       } else if (theme === 'desert') {
         const rocks = [], mesas = [], cacti = [];
         place(70, 30, 160, (x, y, z) => rocks.push({ x, y: y + 0.8, z, sx: rnd(1, 2.4), sy: rnd(0.8, 2), sz: rnd(1, 2.4), ry: rnd(0, 6) }));
@@ -2999,6 +3025,11 @@
       });
       showAutoGas();
       document.getElementById('btn-fullscreen').addEventListener('click', () => toggleFullscreen());
+      document.getElementById('btn-menu-fullscreen').addEventListener('click', () => toggleFullscreen());
+      document.getElementById('ios-fs-close').addEventListener('click', () => { const m = document.getElementById('ios-fs-modal'); m.classList.add('hidden'); m.classList.remove('flex'); });
+      document.addEventListener('fullscreenchange', updateFullscreenButtons);
+      document.addEventListener('webkitfullscreenchange', updateFullscreenButtons);
+      updateFullscreenButtons();
 
       // Graphics settings
       document.querySelectorAll('.quality-btn').forEach(b => b.addEventListener('click', () => setQuality(b.dataset.q)));
@@ -3105,16 +3136,30 @@
     }
 
     let autoGas = false;
-    // Full screen + landscape lock where the browser allows it (Android Chrome; iPhone Safari can't)
+    // Running as an installed home-screen app = already full screen
+    const IS_STANDALONE = (window.matchMedia && (window.matchMedia('(display-mode: fullscreen)').matches || window.matchMedia('(display-mode: standalone)').matches)) || navigator.standalone === true;
+    const CAN_FULLSCREEN = !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+    // Full screen + landscape lock where the browser allows it (Android Chrome, iPad). iPhone Safari has no
+    // full-screen API for pages, so there the button explains "Add to Home Screen" instead.
     function toggleFullscreen(forceOn) {
+      if (IS_STANDALONE) return;
       const el = document.documentElement, fs = document.fullscreenElement || document.webkitFullscreenElement;
       if (fs && !forceOn) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
       if (fs) return;
       const req = el.requestFullscreen || el.webkitRequestFullscreen;
-      if (!req) return;
+      if (!req) {
+        if (!forceOn) { const m = document.getElementById('ios-fs-modal'); m.classList.remove('hidden'); m.classList.add('flex'); }
+        return;
+      }
       Promise.resolve(req.call(el, { navigationUI: 'hide' })).then(() => {
         if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+        setTimeout(onWindowResize, 300);
       }).catch(() => {});
+    }
+    function updateFullscreenButtons() {
+      const fs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+      document.querySelectorAll('#btn-fullscreen i, #btn-menu-fullscreen i').forEach(i => { i.className = fs ? 'fa-solid fa-compress' : 'fa-solid fa-expand'; });
+      if (IS_STANDALONE) document.querySelectorAll('#btn-fullscreen, #btn-menu-fullscreen').forEach(b => b.style.setProperty('display', 'none', 'important'));
     }
 
     function setTransmission(mode) {
@@ -4810,7 +4855,7 @@
       const frameSec = (now - lastTime) / 1000;
       const dt = Math.max(0, Math.min(frameSec, 0.05));
       lastTime = now;
-      adaptResolution(frameSec);
+      watchFrameRate(frameSec);
 
       if (raceState === 'RACING') {
         // the race clock only needs ~10 updates a second, not one per frame
