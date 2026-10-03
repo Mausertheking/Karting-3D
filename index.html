@@ -128,10 +128,58 @@
     @keyframes wrongWayBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
     .wrong-way-blink { animation: wrongWayBlink 0.6s ease-in-out infinite; }
 
-    /* Touch devices: lift the HUD so the on-screen pedals never cover the gauges */
-    body.is-touch #hud-bottom-row { position: absolute; left: 12px; right: 12px; bottom: 96px; }
-    body.is-touch #hud-bottom-row > :first-child { transform: scale(0.72); transform-origin: bottom left; }
-    body.is-touch #hud-bottom-row > :last-child { transform: scale(0.72); transform-origin: bottom right; }
+    /* ---------- Touch devices / phones ---------- */
+    html, body { overscroll-behavior: none; -webkit-touch-callout: none; }
+    #webgl-canvas { touch-action: none; }
+    .touch-only { display: none !important; }
+    body.is-touch .touch-only { display: flex !important; }
+    body.is-touch .desktop-only { display: none !important; }
+    #touch-steer { left: max(12px, env(safe-area-inset-left)); bottom: max(12px, env(safe-area-inset-bottom)); touch-action: none; }
+    #touch-pedals { right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); }
+    #touch-manual-cluster { right: calc(max(12px, env(safe-area-inset-right)) + 250px); bottom: 14px; }
+    .steer-pad { width: 96px; height: 96px; border-radius: 26px; display: flex; align-items: center; justify-content: center; font-size: 34px; color: #fff; transition: background 0.08s, transform 0.08s; }
+    .steer-pad.active { background: rgba(56, 189, 248, 0.38); transform: scale(0.95); }
+    .pedal { display: flex; align-items: center; justify-content: center; border-radius: 22px; }
+    .pedal-sm { width: 70px; height: 70px; }
+    .pedal-md { width: 80px; height: 80px; }
+    .pedal-lg { width: 88px; height: 108px; }
+    body.autogas #touch-gas { display: none; }
+    body.autogas #touch-brake { width: 96px; height: 96px; }
+    /* HUD: gauges small at the bottom centre between the thumbs, minimap top-right */
+    body.is-touch #hud-bottom-row { position: absolute; left: 0; right: 0; bottom: 6px; justify-content: center; }
+    body.is-touch #hud-bottom-row > :first-child { transform: scale(0.62); transform-origin: bottom center; }
+    body.is-touch #btn-restart, body.is-touch #hud-trackname-panel { display: none !important; }
+    body.is-touch #minimap-wrap { position: fixed; right: max(8px, env(safe-area-inset-right)); top: 58px; transform: scale(0.72); transform-origin: top right; }
+    body.is-touch #hud-top-left { transform: scale(0.8); transform-origin: top left; }
+    body.is-touch #hud-top-right { transform: scale(0.85); transform-origin: top right; }
+    /* Portrait phones get a "turn your phone" screen */
+    #rotate-overlay { display: none; }
+    @media (orientation: portrait) { body.is-touch #rotate-overlay { display: flex; } }
+    @keyframes rotatePhone { 0%, 25% { transform: rotate(0deg); } 60%, 100% { transform: rotate(-90deg); } }
+    .rotate-phone { animation: rotatePhone 1.8s ease-in-out infinite; display: inline-block; }
+    @media (max-height: 420px) {
+      .steer-pad { width: 82px; height: 82px; font-size: 28px; }
+      .pedal-sm { width: 62px; height: 62px; }
+      .pedal-md { width: 70px; height: 70px; }
+      .pedal-lg { width: 78px; height: 94px; }
+      body.autogas #touch-brake { width: 84px; height: 84px; }
+      body.is-touch #hud-top-left { transform: scale(0.68); }
+      body.is-touch #hud-top-right { transform: scale(0.75); }
+      body.is-touch #minimap-wrap { top: 46px; transform: scale(0.6); }
+      body.is-touch #hud-bottom-row > :first-child { transform: scale(0.52); }
+      #touch-manual-cluster { right: 225px; }
+    }
+    /* Compact menus on short (landscape phone) screens */
+    @media (max-height: 520px) {
+      .menu-card { padding: 14px !important; }
+      .menu-card h1 { font-size: 1.6rem !important; line-height: 2rem !important; margin-bottom: 4px !important; }
+      .menu-subtitle { display: none; }
+      .menu-card .glass-panel { padding: 8px !important; }
+      #level-selection-grid .line-clamp-2 { display: none; }
+      /* keep START reachable without scrolling the menu */
+      #btn-start-game { position: sticky; bottom: 46px; z-index: 5; }
+      #btn-play-online { position: sticky; bottom: 0; z-index: 5; background: rgba(13, 19, 33, 0.95); }
+    }
     @media (max-height: 480px) {
       body.is-touch #hud-overlay { padding-top: 6px; }
       body.is-touch #f1-gantry-container { transform: scale(0.8); margin-bottom: 0; }
@@ -176,7 +224,7 @@
     <div class="flex justify-between items-start gap-3">
       
       <!-- Position & Lap Counter -->
-      <div class="flex gap-2.5">
+      <div id="hud-top-left" class="flex gap-2.5">
         <div class="glass-panel rounded-2xl px-4 py-2.5 flex items-center gap-3">
           <div class="text-[11px] uppercase tracking-widest text-slate-400 font-bold">Pos</div>
           <div id="hud-position" class="font-racing text-2xl md:text-4xl font-extrabold text-amber-400 drop-shadow">1<span class="text-sm md:text-lg text-slate-300">/4</span></div>
@@ -187,7 +235,7 @@
           <div id="hud-lap" class="font-racing text-2xl md:text-4xl font-extrabold text-sky-400 drop-shadow">1<span class="text-sm md:text-lg text-slate-300">/3</span></div>
         </div>
 
-        <div class="glass-panel rounded-2xl px-3.5 py-2 hidden sm:flex flex-col justify-center">
+        <div id="hud-trackname-panel" class="glass-panel rounded-2xl px-3.5 py-2 hidden sm:flex flex-col justify-center">
           <span id="hud-track-name" class="font-racing text-xs font-bold text-emerald-400 tracking-wide">Level 1: Meadow GP</span>
           <span id="hud-lap-time" class="font-racing text-[11px] text-slate-300">Time: 00:00.00</span>
         </div>
@@ -209,9 +257,16 @@
       </div>
 
       <!-- Action Toggles -->
-      <div class="flex items-center gap-2 pointer-events-auto">
+      <div id="hud-top-right" class="flex items-center gap-2 pointer-events-auto">
+        <!-- Phones: auto-gas and full screen -->
+        <button id="btn-autogas" class="touch-only glass-btn rounded-xl px-3 h-10 items-center gap-1.5 text-[10px] font-racing font-bold text-emerald-300" title="Auto accelerate">
+          <i class="fa-solid fa-gauge-high"></i><span id="autogas-label">AUTO GAS</span>
+        </button>
+        <button id="btn-fullscreen" class="touch-only glass-btn rounded-xl w-10 h-10 items-center justify-center text-slate-200" title="Full screen">
+          <i class="fa-solid fa-expand"></i>
+        </button>
         <!-- Manual / Auto Transmission Toggle -->
-        <button id="btn-trans-mode" class="glass-btn rounded-xl px-3 py-2 flex items-center gap-2 text-xs font-racing font-bold text-slate-200" title="Toggle Transmission [T]">
+        <button id="btn-trans-mode" class="desktop-only glass-btn rounded-xl px-3 py-2 flex items-center gap-2 text-xs font-racing font-bold text-slate-200" title="Toggle Transmission [T]">
           <i class="fa-solid fa-gear text-amber-400"></i>
           <span id="trans-mode-label" class="hidden sm:inline">AUTO</span>
         </button>
@@ -324,54 +379,52 @@
       </div>
 
       <!-- Minimap Radar -->
-      <div class="glass-panel p-2 rounded-3xl flex flex-col items-center shadow-2xl">
+      <div id="minimap-wrap" class="glass-panel p-2 rounded-3xl flex flex-col items-center shadow-2xl">
         <canvas id="minimap-canvas" width="125" height="125" class="rounded-2xl bg-slate-950/80 border border-white/10"></canvas>
       </div>
     </div>
   </div>
 
   <!-- Mobile Touch Controls -->
-  <div id="mobile-controls" class="absolute inset-0 pointer-events-none z-20 hidden flex-col justify-end p-3">
-    <div class="flex justify-between items-end pb-3 w-full">
-      
-      <!-- Steering D-Pad (A / D) -->
-      <div class="flex gap-2.5 pointer-events-auto">
-        <button id="touch-left" class="touch-btn glass-panel rounded-2xl w-16 h-16 flex items-center justify-center text-2xl text-white">
-          <i class="fa-solid fa-arrow-left"></i>
-        </button>
-        <button id="touch-right" class="touch-btn glass-panel rounded-2xl w-16 h-16 flex items-center justify-center text-2xl text-white">
-          <i class="fa-solid fa-arrow-right"></i>
-        </button>
-      </div>
+  <div id="mobile-controls" class="absolute inset-0 pointer-events-none z-20 hidden">
+    <!-- Steering: one zone, slide your thumb between the halves -->
+    <div id="touch-steer" class="touch-zone pointer-events-auto absolute flex gap-2">
+      <div class="steer-pad glass-panel" data-dir="left"><i class="fa-solid fa-chevron-left"></i></div>
+      <div class="steer-pad glass-panel" data-dir="right"><i class="fa-solid fa-chevron-right"></i></div>
+    </div>
 
-      <!-- Center Shift Buttons for Mobile Manual Mode -->
-      <div id="touch-manual-cluster" class="flex flex-col gap-2 pointer-events-auto hidden">
-        <button id="touch-shift-up" class="touch-btn glass-panel bg-amber-500/25 border-amber-400/50 rounded-2xl w-14 h-11 flex items-center justify-center font-racing font-bold text-amber-300 text-xs">
-          GEAR ▲
-        </button>
-        <button id="touch-shift-down" class="touch-btn glass-panel bg-slate-700/40 rounded-2xl w-14 h-11 flex items-center justify-center font-racing font-bold text-slate-300 text-xs">
-          GEAR ▼
-        </button>
-      </div>
+    <!-- Gear buttons (manual transmission only) -->
+    <div id="touch-manual-cluster" class="absolute flex flex-col gap-2 pointer-events-auto hidden">
+      <button id="touch-shift-up" class="touch-btn glass-panel bg-amber-500/25 border-amber-400/50 rounded-2xl w-14 h-11 flex items-center justify-center font-racing font-bold text-amber-300 text-xs">GEAR ▲</button>
+      <button id="touch-shift-down" class="touch-btn glass-panel bg-slate-700/40 rounded-2xl w-14 h-11 flex items-center justify-center font-racing font-bold text-slate-300 text-xs">GEAR ▼</button>
+    </div>
 
-      <!-- Pedals & Drift Cluster (W, S, Space) -->
-      <div class="flex items-end gap-2 pointer-events-auto">
-        <button id="touch-drift" class="touch-btn glass-panel bg-cyan-500/25 border-cyan-400/40 rounded-2xl w-14 h-14 flex items-center justify-center text-xs font-racing font-bold text-cyan-300">
-          DRIFT
-        </button>
-        <button id="touch-brake" class="touch-btn glass-panel bg-rose-500/30 border-rose-400/40 rounded-2xl w-14 h-14 flex items-center justify-center text-xl text-rose-300">
-          <i class="fa-solid fa-backward-step"></i>
-        </button>
-        <button id="touch-gas" class="touch-btn glass-panel bg-emerald-500/35 border-emerald-400/50 rounded-2xl w-16 h-20 flex items-center justify-center text-2xl text-emerald-300">
-          <i class="fa-solid fa-gas-pump"></i>
-        </button>
-      </div>
+    <!-- Pedals & drift -->
+    <div id="touch-pedals" class="pointer-events-auto absolute flex items-end gap-2">
+      <button id="touch-drift" class="touch-btn pedal pedal-sm glass-panel bg-cyan-500/25 border-cyan-400/40 font-racing font-bold text-cyan-200 text-xs">DRIFT</button>
+      <button id="touch-brake" class="touch-btn pedal pedal-md glass-panel bg-rose-500/30 border-rose-400/40 text-rose-200 flex-col">
+        <i class="fa-solid fa-backward-step text-xl"></i><span class="font-racing text-[9px] font-bold mt-0.5">BRAKE</span>
+      </button>
+      <button id="touch-gas" class="touch-btn pedal pedal-lg glass-panel bg-emerald-500/35 border-emerald-400/50 text-emerald-200 flex-col">
+        <i class="fa-solid fa-gas-pump text-2xl"></i><span class="font-racing text-[9px] font-bold mt-1">GAS</span>
+      </button>
     </div>
   </div>
 
+  <!-- Phones: ask for landscape -->
+  <div id="rotate-overlay" class="absolute inset-0 z-50 items-center justify-center bg-slate-950/95 text-center p-6">
+    <div>
+      <div class="rotate-phone text-6xl text-sky-400 mb-4"><i class="fa-solid fa-mobile-screen-button"></i></div>
+      <div class="font-racing text-xl font-black text-white mb-1">TURN YOUR PHONE</div>
+      <div class="text-sm text-slate-300">Mini Karting is played in landscape</div>
+    </div>
+  </div>
+
+  <div id="fps-counter" class="hidden absolute top-1 left-1/2 -translate-x-1/2 z-30 pointer-events-none font-racing text-[10px] text-emerald-300 bg-slate-950/70 rounded px-2 py-0.5"></div>
+
   <!-- Main Menu Modal -->
   <div id="menu-modal" class="absolute inset-0 z-30 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md transition-opacity duration-300">
-    <div class="glass-panel max-w-2xl w-full rounded-3xl p-6 md:p-8 text-center border border-white/20 shadow-2xl relative overflow-hidden max-h-[92vh] overflow-y-auto">
+    <div class="menu-card glass-panel max-w-2xl w-full rounded-3xl p-6 md:p-8 text-center border border-white/20 shadow-2xl relative overflow-hidden max-h-[92vh] overflow-y-auto">
       
       <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/20 text-sky-400 border border-sky-400/30 text-xs font-semibold uppercase tracking-wider mb-2">
         <i class="fa-solid fa-trophy"></i> Grand Prix Pro Championship
@@ -380,7 +433,7 @@
       <h1 class="font-racing text-3xl md:text-5xl font-black tracking-tight text-white mb-2">
         MINI <span class="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-rose-500 to-sky-400">KARTING</span> 3D
       </h1>
-      <p class="text-slate-300 text-xs md:text-sm mb-4">Master tight chicanes, powerslide through high-banked tribunes, and outrun elite championship rivals!</p>
+      <p class="menu-subtitle text-slate-300 text-xs md:text-sm mb-4">Master tight chicanes, powerslide through high-banked tribunes, and outrun elite championship rivals!</p>
 
       <!-- Transmission & AI Difficulty Selectors -->
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 text-left">
@@ -419,8 +472,29 @@
         <!-- Dynamic Level Cards -->
       </div>
 
+      <!-- Graphics quality -->
+      <div class="glass-panel p-3 rounded-2xl mb-4 text-left">
+        <div class="flex items-center justify-between mb-1.5">
+          <label class="text-[10px] uppercase font-bold tracking-widest text-slate-400">Graphics</label>
+          <label class="flex items-center gap-1.5 text-[10px] text-slate-400 cursor-pointer"><input id="opt-show-fps" type="checkbox" class="accent-emerald-400"> Show FPS</label>
+        </div>
+        <div class="grid grid-cols-4 gap-1.5">
+          <button class="quality-btn" data-q="auto">AUTO</button>
+          <button class="quality-btn" data-q="high">HIGH</button>
+          <button class="quality-btn" data-q="medium">MEDIUM</button>
+          <button class="quality-btn" data-q="low">LOW</button>
+        </div>
+        <div id="quality-auto-note" class="text-[10px] text-slate-500 mt-1"></div>
+      </div>
+
+      <!-- Touch controls help (phones / tablets) -->
+      <div class="touch-only glass-panel p-3 rounded-2xl mb-4 text-[11px] text-slate-300 text-left flex-col gap-1">
+        <div><span class="font-racing font-bold text-sky-300">LEFT THUMB</span> — slide on the arrows to steer</div>
+        <div><span class="font-racing font-bold text-rose-300">RIGHT THUMB</span> — brake, drift (hold while turning), gas. AUTO GAS keeps the throttle down for you.</div>
+      </div>
+
       <!-- Controls Matrix -->
-      <div class="glass-panel p-3 rounded-2xl mb-5 text-[11px] text-slate-300 grid grid-cols-2 md:grid-cols-5 gap-2 text-center">
+      <div class="desktop-only glass-panel p-3 rounded-2xl mb-5 text-[11px] text-slate-300 grid grid-cols-2 md:grid-cols-5 gap-2 text-center">
         <div><span class="font-racing font-bold text-amber-300">W / ↑</span> : Throttle</div>
         <div><span class="font-racing font-bold text-amber-300">S / ↓</span> : Brake/Rev</div>
         <div><span class="font-racing font-bold text-amber-300">A / D</span> : Steer</div>
@@ -1600,9 +1674,56 @@
         g.setIndex(new THREE.BufferAttribute(new Uint16Array(idx), 1));
         g.computeBoundingSphere();
         if (!groups[part.g]) groups[part.g] = [];
-        groups[part.g].push({ geo: g, mat: part.m });
+        groups[part.g].push({ geo: g, geoLow: decimateGeometry(g, 0.045), geoFar: decimateGeometry(g, 0.1), mat: part.m });
       }
       return { groups, info: KART_MODEL_META.groups };
+    }
+
+    // Level-of-detail copy by vertex clustering: vertices that fall in the same small cell (and face
+    // roughly the same way, so hard edges survive) are merged and collapsed triangles are dropped.
+    // Distant karts use this copy — the full model is ~69k triangles per kart.
+    function decimateGeometry(geo, cell) {
+      const pos = geo.attributes.position, nrm = geo.attributes.normal, idx = geo.index.array;
+      const cells = new Map(), map = new Uint32Array(pos.count), P = [], Nn = [], C = [];
+      const b = v => (v > 0.5 ? 2 : v < -0.5 ? 0 : 1);
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        const nx = nrm.getX(i), ny = nrm.getY(i), nz = nrm.getZ(i);
+        const key = Math.round(x / cell) + ',' + Math.round(y / cell) + ',' + Math.round(z / cell) + ',' + (b(nx) * 9 + b(ny) * 3 + b(nz));
+        let c = cells.get(key);
+        if (c === undefined) { c = C.length; cells.set(key, c); P.push(0, 0, 0); Nn.push(0, 0, 0); C.push(0); }
+        P[c * 3] += x; P[c * 3 + 1] += y; P[c * 3 + 2] += z;
+        Nn[c * 3] += nx; Nn[c * 3 + 1] += ny; Nn[c * 3 + 2] += nz; C[c]++;
+        map[i] = c;
+      }
+      for (let c = 0; c < C.length; c++) {
+        P[c * 3] /= C[c]; P[c * 3 + 1] /= C[c]; P[c * 3 + 2] /= C[c];
+        const l = Math.hypot(Nn[c * 3], Nn[c * 3 + 1], Nn[c * 3 + 2]) || 1;
+        Nn[c * 3] /= l; Nn[c * 3 + 1] /= l; Nn[c * 3 + 2] /= l;
+      }
+      const tris = [], seen = new Set();
+      for (let k = 0; k < idx.length; k += 3) {
+        const a = map[idx[k]], b2 = map[idx[k + 1]], c = map[idx[k + 2]];
+        if (a === b2 || b2 === c || a === c) continue;
+        const key = a < b2 ? (a < c ? `${a},${b2},${c}` : `${c},${a},${b2}`) : (b2 < c ? `${b2},${c},${a}` : `${c},${a},${b2}`);
+        if (seen.has(key)) continue;
+        seen.add(key); tris.push(a, b2, c);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(Nn, 3));
+      g.setIndex(tris);
+      g.computeBoundingSphere();
+      return g;
+    }
+
+    // Switch a kart's model detail: 0 = full, 1 = light (~1/3), 2 = far (tiny). true/false = 1/0.
+    function setKartLOD(kart, level) {
+      level = level === true ? 1 : level === false ? 0 : level;
+      if (!kart || !kart.lodMeshes || kart.lodLevel === level) return;
+      kart.lodLevel = level;
+      kart.lodMeshes.forEach(m => { m.geometry = level === 0 ? m.userData.geoHigh : level === 1 ? m.userData.geoLow : m.userData.geoFar; });
+      if (kart.driverDetail) kart.driverDetail.forEach(m => { m.visible = level === 0; });
     }
 
     // Small studio environment so chrome / metal parts have something to reflect
@@ -1697,8 +1818,10 @@
       const asset = kartModelAsset;
       const mats = makeKartMaterials(kartColor);
       const root = new THREE.Group(); root.rotation.order = 'YXZ';
+      const lodMeshes = [];
       const addMeshes = (parent, list, matOverride) => list.forEach(it => {
         const m = new THREE.Mesh(it.geo, (matOverride && matOverride[it.mat]) || mats[it.mat]);
+        if (it.geoLow) { m.userData.geoHigh = it.geo; m.userData.geoLow = it.geoLow; m.userData.geoFar = it.geoFar; lodMeshes.push(m); }
         m.castShadow = true; m.receiveShadow = it.mat === 'paint' || it.mat === 'seat';
         parent.add(m);
       });
@@ -1763,7 +1886,10 @@
         smoke.visible = false; root.add(smoke); smokeParticles.push(smoke);
       }
 
-      return { root, wheels, steeringWheel: steerGroup, exhausts, brakeRotorMats: [brakeMat], smokeParticles, smokeMat, helmet, driver, imported: true, ownMaterials: Object.values(mats).concat([brakeMat, decalMat, flameMat, smokeMat]), numTex };
+      // the driver's fingers / shoes / joints are tiny: hidden on the light model
+      const driverDetail = [];
+      driver.traverse(o => { if (o.isMesh && o.geometry.boundingSphere === null) o.geometry.computeBoundingSphere(); if (o.isMesh && o.geometry.boundingSphere.radius < 0.09) driverDetail.push(o); });
+      return { root, wheels, steeringWheel: steerGroup, exhausts, brakeRotorMats: [brakeMat], smokeParticles, smokeMat, helmet, driver, imported: true, lodMeshes, driverDetail, lodLevel: 0, ownMaterials: Object.values(mats).concat([brakeMat, decalMat, flameMat, smokeMat]), numTex };
     }
 
     // Uses the supplied 3D model when it is available, otherwise the built-in procedural kart
@@ -1793,6 +1919,90 @@
       return Object.values(kartModelAsset.groups).some(list => list.some(it => it.geo === geo));
     }
 
+    // ---------------- Graphics quality ----------------
+    const IS_TOUCH = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    const IS_MOBILE = IS_TOUCH && window.matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
+    //  maxPR/minPR : render-resolution range (the game moves inside it to hold a smooth frame rate)
+    //  lodNear/lodFar : distances where karts switch to the light / tiny model
+    const QUALITY_PRESETS = {
+      high:   { maxPR: 1.75, minPR: 0.9,  shadows: true,  shadowSize: 2048, soft: true,  lodNear: 18, lodFar: 70, crowd: true },
+      medium: { maxPR: 1.25, minPR: 0.7,  shadows: true,  shadowSize: 1024, soft: false, lodNear: 9,  lodFar: 45, crowd: true },
+      low:    { maxPR: 1.0,  minPR: 0.55, shadows: false, shadowSize: 1024, soft: false, lodNear: 0,  lodFar: 28, crowd: false }
+    };
+    let qualitySetting = 'auto';
+    try { qualitySetting = localStorage.getItem('mkc_quality') || 'auto'; } catch (e) {}
+    let Q = QUALITY_PRESETS.high, pixelRatioNow = 1;
+    const resolveQuality = () => qualitySetting === 'auto' ? (IS_MOBILE ? 'low' : 'high') : qualitySetting;
+
+    function applyQuality() {
+      const prev = Q;
+      Q = QUALITY_PRESETS[resolveQuality()] || QUALITY_PRESETS.high;
+      pixelRatioNow = Math.min(window.devicePixelRatio || 1, Q.maxPR);
+      renderer.setPixelRatio(pixelRatioNow);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      const shadowType = Q.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+      const needsRecompile = renderer.shadowMap.enabled !== Q.shadows || renderer.shadowMap.type !== shadowType;
+      renderer.shadowMap.enabled = Q.shadows;
+      renderer.shadowMap.type = shadowType;
+      if (dirLight) {
+        dirLight.castShadow = Q.shadows;
+        if (dirLight.shadow.mapSize.width !== Q.shadowSize) {
+          dirLight.shadow.mapSize.set(Q.shadowSize, Q.shadowSize);
+          if (dirLight.shadow.map) { dirLight.shadow.map.dispose(); dirLight.shadow.map = null; }
+        }
+      }
+      if (needsRecompile && scene) scene.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { m.needsUpdate = true; }); });
+      document.querySelectorAll('.quality-btn').forEach(b => {
+        const on = b.dataset.q === qualitySetting;
+        b.className = `quality-btn py-1.5 rounded-lg font-racing text-[10px] font-bold transition-all ${on ? 'bg-emerald-400 text-slate-950' : 'glass-btn text-slate-300'}`;
+      });
+      const lbl = document.getElementById('quality-auto-note');
+      if (lbl) lbl.innerText = qualitySetting === 'auto' ? `Auto picked ${resolveQuality().toUpperCase()} for this device` : '';
+    }
+    function setQuality(q) {
+      qualitySetting = q;
+      try { localStorage.setItem('mkc_quality', q); } catch (e) {}
+      applyQuality();
+    }
+
+    // Dynamic resolution: every second, if the frame rate dropped below ~48 fps lower the internal
+    // render resolution a step; when it is comfortably smooth again, raise it back up.
+    const perf = { acc: 0, frames: 0, cooldown: 2, fps: 60 };
+    function adaptResolution(frameSec) {
+      if (document.hidden || frameSec <= 0 || frameSec > 0.5) return;
+      perf.acc += frameSec; perf.frames++; perf.cooldown -= frameSec;
+      if (perf.acc < 1) return;
+      perf.fps = perf.frames / perf.acc; perf.acc = 0; perf.frames = 0;
+      const fpsEl = document.getElementById('fps-counter');
+      if (fpsEl && !fpsEl.classList.contains('hidden')) fpsEl.innerText = `${Math.round(perf.fps)} FPS · ${Math.round(pixelRatioNow * 100)}% res`;
+      if (perf.cooldown > 0) return;
+      const ceiling = Math.min(window.devicePixelRatio || 1, Q.maxPR);
+      let next = pixelRatioNow;
+      if (perf.fps < 48 && pixelRatioNow > Q.minPR + 0.01) next = Math.max(Q.minPR, pixelRatioNow - 0.15);
+      else if (perf.fps > 57 && pixelRatioNow < ceiling - 0.01) next = Math.min(ceiling, pixelRatioNow + 0.1);
+      if (next !== pixelRatioNow) {
+        perf.cooldown = next < pixelRatioNow ? 2 : 4;   // drop quickly, climb back slowly
+        pixelRatioNow = next;
+        renderer.setPixelRatio(pixelRatioNow);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+    }
+
+    // Karts close to the camera use the full model, further away the light / tiny one
+    function updateKartLODs() {
+      const cp = camera.position;
+      const set = (k, isPlayer) => {
+        if (!k || !k.lodMeshes) return;
+        const d = k.root.position.distanceTo(cp);
+        let lvl = d < Q.lodNear ? 0 : d < Q.lodFar ? 1 : 2;
+        if (isPlayer && cameraMode === 1) lvl = Math.min(lvl, Q.lodNear > 0 ? 0 : 1);   // cockpit view
+        setKartLOD(k, lvl);
+      };
+      set(playerKart, true);
+      aiKarts.forEach(a => set(a.kart));
+      if (MP.active) Object.values(MP.remotes).forEach(r => set(r.kart));
+    }
+
     function init3DEngine() {
       const container = document.getElementById('game-container');
       const canvas = document.getElementById('webgl-canvas');
@@ -1804,9 +2014,10 @@
       camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.2, 3000);
       camera.position.set(0, 8, -14);
 
-      renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, powerPreference: 'high-performance' });
+      // Phones skip MSAA (big cost on high-density screens); everything else is set by applyQuality()
+      renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: !IS_MOBILE, powerPreference: 'high-performance' });
       renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setPixelRatio(1);
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1832,6 +2043,7 @@
       dirLight.shadow.camera.bottom = -d;
       dirLight.shadow.bias = -0.0003;
       scene.add(dirLight);
+      applyQuality();
 
       // Sound System Instantiation
       audioManager = new KartAudio();
@@ -1851,6 +2063,7 @@
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
+      if (currentTrackData) currentTrackData.minimapCache = null;
     }
 
     function isPointClearOfTrack(point, spline, minDistance = 22) {
@@ -2745,8 +2958,60 @@
 
       bindTouch('touch-gas', () => { keys.forward = true; }, () => { keys.forward = false; });
       bindTouch('touch-brake', () => { keys.backward = true; }, () => { keys.backward = false; });
-      bindTouch('touch-left', () => { keys.left = true; }, () => { keys.left = false; });
-      bindTouch('touch-right', () => { keys.right = true; }, () => { keys.right = false; });
+      // Steering zone: every finger on it steers toward the half it is over; the most recent finger wins,
+      // and you can slide from one arrow to the other without lifting your thumb
+      const steerZone = document.getElementById('touch-steer');
+      const steerPads = steerZone.querySelectorAll('.steer-pad');
+      const steerFingers = new Map();
+      const applySteer = () => {
+        let dir = null;
+        steerFingers.forEach(d => { dir = d; });          // Map keeps insertion order: last finger wins
+        keys.left = dir === 'left'; keys.right = dir === 'right';
+        steerPads.forEach(p => p.classList.toggle('active', p.dataset.dir === dir));
+      };
+      const steerDir = x => { const r = steerZone.getBoundingClientRect(); return x < r.left + r.width / 2 ? 'left' : 'right'; };
+      steerZone.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        try { steerZone.setPointerCapture(e.pointerId); } catch (err) {}
+        steerFingers.delete(e.pointerId); steerFingers.set(e.pointerId, steerDir(e.clientX)); applySteer();
+      });
+      steerZone.addEventListener('pointermove', e => {
+        if (!steerFingers.has(e.pointerId)) return;
+        const d = steerDir(e.clientX);
+        if (steerFingers.get(e.pointerId) !== d) { steerFingers.delete(e.pointerId); steerFingers.set(e.pointerId, d); applySteer(); }
+      });
+      const steerUp = e => { if (steerFingers.delete(e.pointerId)) applySteer(); };
+      ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => steerZone.addEventListener(t, steerUp));
+      steerZone.addEventListener('contextmenu', e => e.preventDefault());
+
+      // Auto-gas (default on phones): throttle stays down unless you brake
+      try { autoGas = IS_TOUCH && localStorage.getItem('mkc_autogas') !== '0'; } catch (e) { autoGas = IS_TOUCH; }
+      const showAutoGas = () => {
+        document.body.classList.toggle('autogas', autoGas);
+        const lbl = document.getElementById('autogas-label'); if (lbl) lbl.innerText = autoGas ? 'AUTO GAS' : 'MANUAL GAS';
+        const btn = document.getElementById('btn-autogas'); if (btn) btn.classList.toggle('text-emerald-300', autoGas);
+        if (!autoGas) keys.forward = false;
+      };
+      document.getElementById('btn-autogas').addEventListener('click', () => {
+        autoGas = !autoGas;
+        try { localStorage.setItem('mkc_autogas', autoGas ? '1' : '0'); } catch (e) {}
+        showAutoGas();
+      });
+      showAutoGas();
+      document.getElementById('btn-fullscreen').addEventListener('click', () => toggleFullscreen());
+
+      // Graphics settings
+      document.querySelectorAll('.quality-btn').forEach(b => b.addEventListener('click', () => setQuality(b.dataset.q)));
+      applyQuality();
+      const fpsChk = document.getElementById('opt-show-fps');
+      try { fpsChk.checked = localStorage.getItem('mkc_fps') === '1'; } catch (e) {}
+      const showFps = () => document.getElementById('fps-counter').classList.toggle('hidden', !fpsChk.checked);
+      fpsChk.addEventListener('change', () => { try { localStorage.setItem('mkc_fps', fpsChk.checked ? '1' : '0'); } catch (e) {} showFps(); });
+      showFps();
+
+      // No pinch-zoom / double-tap zoom / page bounce while racing on a phone
+      document.addEventListener('gesturestart', e => e.preventDefault());
+      document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
       bindTouch('touch-drift', () => { keys.drift = true; }, () => { keys.drift = false; });
 
       // Mobile Manual Gear Shift Buttons
@@ -2797,6 +3062,7 @@
 
       // Start Grand Prix
       document.getElementById('btn-start-game').addEventListener('click', () => {
+        if (IS_MOBILE) toggleFullscreen(true);
         audioManager.init();
         startF1Countdown();
       });
@@ -2836,6 +3102,19 @@
         if (audioManager.ctx && audioManager.ctx.state === 'suspended') audioManager.ctx.resume();
         modal.classList.add('hidden'); modal.classList.remove('flex');
       }
+    }
+
+    let autoGas = false;
+    // Full screen + landscape lock where the browser allows it (Android Chrome; iPhone Safari can't)
+    function toggleFullscreen(forceOn) {
+      const el = document.documentElement, fs = document.fullscreenElement || document.webkitFullscreenElement;
+      if (fs && !forceOn) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+      if (fs) return;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (!req) return;
+      Promise.resolve(req.call(el, { navigationUI: 'hide' })).then(() => {
+        if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+      }).catch(() => {});
     }
 
     function setTransmission(mode) {
@@ -3838,12 +4117,14 @@
     const _shadowUp = new THREE.Vector3().crossVectors(_shadowRight, _shadowDir).normalize();
     const _shadowCenter = new THREE.Vector3();
 
-    function drawMinimap() {
+    let minimapLast = 0;
+    function drawMinimap(now = performance.now()) {
+      if (now - minimapLast < 33) return;          // 30 Hz is plenty for a minimap
+      minimapLast = now;
       const canvas = document.getElementById('minimap-canvas');
       const ctx = canvas.getContext('2d');
       const w = canvas.width, h = canvas.height;
-      ctx.clearRect(0, 0, w, h);
-      if (!currentTrackData || !currentTrackData.samples) return;
+      if (!currentTrackData || !currentTrackData.samples) { ctx.clearRect(0, 0, w, h); return; }
 
       const S = currentTrackData.samples;
       if (!currentTrackData.mapBounds) {
@@ -3857,22 +4138,28 @@
       const offX = (w - (maxX - minX) * scale) / 2, offY = (h - (maxZ - minZ) * scale) / 2;
       const toMap = (x, z) => ({ x: offX + (x - minX) * scale, y: offY + (z - minZ) * scale });
 
-      const path = () => {
-        ctx.beginPath();
-        for (let i = 0; i <= S.n; i += 4) {
-          const p = S.p[i % S.n], m = toMap(p.x, p.z);
-          if (i === 0) ctx.moveTo(m.x, m.y); else ctx.lineTo(m.x, m.y);
-        }
-        ctx.closePath();
-      };
-      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      path(); ctx.strokeStyle = 'rgba(2, 6, 23, 0.9)'; ctx.lineWidth = 7; ctx.stroke();
-      path(); ctx.strokeStyle = 'rgba(226, 232, 240, 0.75)'; ctx.lineWidth = 4; ctx.stroke();
-
-      // Start / finish tick
-      const s0 = toMap(S.p[0].x, S.p[0].z), n0 = S.nm[0];
-      ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.moveTo(s0.x - n0.x * 5, s0.y - n0.z * 5); ctx.lineTo(s0.x + n0.x * 5, s0.y + n0.z * 5); ctx.stroke();
+      // The track outline never changes: draw it once into an offscreen canvas and reuse it
+      if (!currentTrackData.minimapCache) {
+        const off = document.createElement('canvas'); off.width = w; off.height = h;
+        const oc = off.getContext('2d');
+        const path = () => {
+          oc.beginPath();
+          for (let i = 0; i <= S.n; i += 4) {
+            const p = S.p[i % S.n], m = toMap(p.x, p.z);
+            if (i === 0) oc.moveTo(m.x, m.y); else oc.lineTo(m.x, m.y);
+          }
+          oc.closePath();
+        };
+        oc.lineCap = 'round'; oc.lineJoin = 'round';
+        path(); oc.strokeStyle = 'rgba(2, 6, 23, 0.9)'; oc.lineWidth = 7; oc.stroke();
+        path(); oc.strokeStyle = 'rgba(226, 232, 240, 0.75)'; oc.lineWidth = 4; oc.stroke();
+        const s0 = toMap(S.p[0].x, S.p[0].z), n0 = S.nm[0];
+        oc.strokeStyle = '#f59e0b'; oc.lineWidth = 2.5;
+        oc.beginPath(); oc.moveTo(s0.x - n0.x * 5, s0.y - n0.z * 5); oc.lineTo(s0.x + n0.x * 5, s0.y + n0.z * 5); oc.stroke();
+        currentTrackData.minimapCache = off;
+      }
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(currentTrackData.minimapCache, 0, 0);
 
       aiKarts.forEach(ai => {
         const m = toMap(ai.kart.root.position.x, ai.kart.root.position.z);
@@ -3892,9 +4179,9 @@
       const pb = toMap(playerState.pos.x, playerState.pos.z);
       const ang = Math.atan2(Math.cos(playerState.heading), Math.sin(playerState.heading));
       ctx.save(); ctx.translate(pb.x, pb.y); ctx.rotate(ang);
-      ctx.shadowColor = '#f43f5e'; ctx.shadowBlur = 8; ctx.fillStyle = '#f43f5e';
-      ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(-4, 4); ctx.lineTo(-2, 0); ctx.lineTo(-4, -4); ctx.closePath(); ctx.fill();
-      ctx.restore(); ctx.shadowBlur = 0;
+      ctx.fillStyle = '#f43f5e'; ctx.strokeStyle = '#020617'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(6.5, 0); ctx.lineTo(-4.5, 4.5); ctx.lineTo(-2, 0); ctx.lineTo(-4.5, -4.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
     }
 
     function finishRace() {
@@ -4315,6 +4602,7 @@
       populateLevelGrid();
       mpShowModal(false);
       audioManager.init();
+      if (IS_MOBILE) toggleFullscreen(true);
       startF1Countdown(msg.hold);
     }
 
@@ -4519,15 +4807,20 @@
     function gameLoop(now) {
       requestAnimationFrame(gameLoop);
 
-      const dt = Math.max(0, Math.min((now - lastTime) / 1000, 0.05));
+      const frameSec = (now - lastTime) / 1000;
+      const dt = Math.max(0, Math.min(frameSec, 0.05));
       lastTime = now;
+      adaptResolution(frameSec);
 
       if (raceState === 'RACING') {
-        const elapsed = (now - raceStartTime) / 1000;
-        document.getElementById('hud-lap-time').innerText = `Time: ${formatRaceTime(elapsed)}`;
+        // the race clock only needs ~10 updates a second, not one per frame
+        const elapsed = Math.floor((now - raceStartTime) / 100) / 10;
+        hud.text('hud-lap-time', `Time: ${formatRaceTime(elapsed)}`);
       }
 
       if (raceState === 'PAUSED') { renderer.render(scene, camera); return; }
+
+      if (autoGas && (raceState === 'RACING' || raceState === 'COUNTDOWN')) keys.forward = !keys.backward;
 
       // Physics in equal sub-steps of at most 1/120 s. The old "1 or 2 steps depending on frame time"
       // switch changed the simulation step size from frame to frame, which made motion judder.
@@ -4540,8 +4833,9 @@
       updatePickups(dt, now);
       mpUpdate(dt, now);
       updateCamera(dt);
-      drawMinimap();
-      if (currentTrackData && currentTrackData.updateCrowd) currentTrackData.updateCrowd(now);
+      drawMinimap(now);
+      if (Q.crowd && currentTrackData && currentTrackData.updateCrowd) currentTrackData.updateCrowd(now);
+      updateKartLODs();
 
       renderer.render(scene, camera);
     }
