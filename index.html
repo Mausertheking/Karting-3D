@@ -8,8 +8,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Three.js 3D Engine -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <!-- PeerJS (WebRTC peer-to-peer) for online multiplayer -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
+  <!-- MQTT over secure WebSockets: relay for online multiplayer -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.16.0/mqtt.min.js"></script>
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   
@@ -501,8 +501,9 @@
 
       <div id="mp-status" class="text-center text-xs mt-3 min-h-[1rem] text-slate-400"></div>
       <p class="text-[10px] text-slate-500 mt-3 leading-relaxed">
-        Players connect directly to the host's browser (WebRTC). The host runs the bots and the start lights, so the host should
-        keep this tab open and in front. A few strict networks (some school / office Wi-Fi) block direct connections.
+        Works between countries: race data is relayed through a public server over a secure connection (only names and kart
+        positions are sent). The host runs the bots and the start lights, so the host should keep this tab open and in front.
+        Ping shows each friend's round-trip delay to the host.
       </p>
     </div>
   </div>
@@ -3915,8 +3916,8 @@
     }
 
     // =====================================================================
-    //  ONLINE MULTIPLAYER (PeerJS / WebRTC)
-    //  Star topology: guests connect to the host's browser. Every driver simulates their own kart
+    //  ONLINE MULTIPLAYER (relayed through a public MQTT broker over secure WebSockets)
+    //  Star topology: guests talk only to the host. Every driver simulates their own kart
     //  (so steering never lags) and sends its state 20x per second. The host runs the bots, the race
     //  settings and the start lights, and relays a snapshot of everyone to everyone.
     // =====================================================================
@@ -3932,13 +3933,13 @@
 
     const MP = {
       active: false, isHost: false, phase: 'idle',     // idle | lobby | racing
-      peer: null, conns: {}, hostConn: null,
+      client: null, base: '', conns: {}, hostConn: null, connecting: false, beat: null, rtt: undefined, lastHost: 0,
       myId: null, myName: 'Driver', code: '',
       players: [],                                     // lobby: [{ id, name, color }]
       settings: { track: 0, diff: 'pro', bots: true },
       remotes: {},                                     // id -> other human in the current race
       botNet: [],                                      // guests: latest bot states from the host
-      lastStart: null, sendAcc: 0, joinTimer: null,
+      lastStart: null, sendAcc: 0, missing: 0,
       myColor() { const me = this.players.find(p => p.id === this.myId); return me ? me.color : 0; }
     };
 
@@ -3965,6 +3966,7 @@
         <div class="glass-panel rounded-xl px-3 py-2 flex items-center gap-2 text-sm">
           <span class="w-3 h-3 rounded-full" style="background:${MP_COLORS[p.color].css}"></span>
           <span class="flex-1 font-semibold truncate">${mpEsc(p.name)}</span>
+          ${typeof p.ping === 'number' ? `<span class="text-[10px] font-racing ${p.ping < 150 ? 'text-emerald-400' : p.ping < 300 ? 'text-amber-400' : 'text-rose-400'}">${p.ping} ms</span>` : ''}
           ${p.id === 'host' ? '<span class="text-[10px] font-racing text-amber-300">HOST</span>' : ''}
           ${p.id === MP.myId ? '<span class="text-[10px] font-racing text-sky-300">YOU</span>' : ''}
         </div>`).join('') + (MP.players.length < 4
@@ -3976,37 +3978,81 @@
       document.getElementById('mp-wait').classList.toggle('hidden', MP.isHost);
     }
 
+    // ---------------- relay connection ----------------
+    // All traffic goes through a public MQTT relay over secure WebSockets. Unlike direct WebRTC links
+    // this works across countries and through home routers / firewalls (it looks like normal HTTPS).
+    // Host listens on <room>/h, guests on <room>/g/<id>, and the host broadcasts on <room>/all.
+    const MP_BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt'];
+    const mpRoomTopic = code => 'mkc3d/v2/' + code;
+    const mpRandId = () => Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6);
+
+    function mpConnectBroker(url, will) {
+      return new Promise((resolve, reject) => {
+        let settled = false;
+        const c = mqtt.connect(url, { clientId: 'mkc_' + mpRandId(), clean: true, connectTimeout: 7000, reconnectPeriod: 0, keepalive: 20, will });
+        const fail = err => { if (settled) return; settled = true; try { c.end(true); } catch (e) {} reject(err); };
+        c.once('connect', () => { if (settled) return; settled = true; c.options.reconnectPeriod = 2000; resolve(c); });
+        c.once('error', fail);
+        setTimeout(() => fail(new Error('timeout')), 8000);
+      });
+    }
+    function mpPub(topic, obj) {
+      if (MP.client && MP.client.connected) MP.client.publish(topic, JSON.stringify(obj), { qos: 0 });
+    }
+    function mpParse(buf) { try { const d = JSON.parse(buf.toString()); return d && typeof d === 'object' ? d : null; } catch (e) { return null; } }
+
+    function mpNeedsLib() {
+      if (typeof mqtt !== 'undefined') return false;
+      mpStatus('Online library failed to load — check your internet connection and reload.', 'error');
+      return true;
+    }
+
     // ---------------- hosting ----------------
-    function mpHost() {
-      if (typeof Peer === 'undefined') { mpStatus('Online library failed to load — check your internet connection.', 'error'); return; }
+    async function mpHost() {
+      if (mpNeedsLib() || MP.connecting) return;
       MP.myName = mpCleanName(document.getElementById('mp-name').value);
       try { localStorage.setItem('mkc_name', MP.myName); } catch (e) {}
       const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
       MP.code = Array.from({ length: 5 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
+      MP.base = mpRoomTopic(MP.code);
+      MP.connecting = true;
       mpStatus('Creating room…');
-      const peer = new Peer(MP_PREFIX + MP.code);
-      MP.peer = peer;
-      peer.on('open', () => {
-        MP.active = true; MP.isHost = true; MP.phase = 'lobby'; MP.myId = 'host';
-        MP.players = [{ id: 'host', name: MP.myName, color: 0 }];
-        MP.settings.track = currentLevelIndex; MP.settings.diff = aiDifficulty;
-        mpStatus('Room open — waiting for friends', 'ok');
-        mpRenderLobby();
+      let client = null;
+      for (const url of MP_BROKERS) {
+        try { client = await mpConnectBroker(url, { topic: MP.base + '/all', payload: JSON.stringify({ type: 'hostgone' }), qos: 0, retain: false }); break; }
+        catch (e) { /* try the next relay */ }
+      }
+      MP.connecting = false;
+      if (!client) { mpStatus('Could not reach the online relay. Check your internet connection.', 'error'); return; }
+      MP.client = client;
+      client.subscribe(MP.base + '/h');
+      client.on('message', (topic, buf) => {
+        const d = mpParse(buf);
+        if (!d || typeof d.from !== 'string' || d.from.length > 24) return;
+        let conn = MP.conns[d.from];
+        if (!conn) conn = { id: d.from, open: true, lastSeen: 0, ping: null, send: obj => mpPub(MP.base + '/g/' + d.from, obj), close() {} };
+        conn.lastSeen = performance.now();
+        mpHostOnData(conn, d);
       });
-      peer.on('connection', conn => {
-        conn.on('data', d => mpHostOnData(conn, d));
-        conn.on('close', () => mpHostDropPlayer(conn.peer));
-        conn.on('error', () => mpHostDropPlayer(conn.peer));
-      });
-      peer.on('disconnected', () => { if (MP.peer === peer && !peer.destroyed) peer.reconnect(); });
-      peer.on('error', e => {
-        if (e.type === 'unavailable-id') { peer.destroy(); mpHost(); return; }   // code collision: pick another
-        mpStatus('Connection problem: ' + (e.type || e.message), 'error');
-      });
+      client.on('reconnect', () => mpStatus('Connection hiccup — reconnecting…'));
+      client.on('connect', () => { if (MP.active) { client.subscribe(MP.base + '/h'); mpStatus('Reconnected', 'ok'); } });
+      MP.active = true; MP.isHost = true; MP.phase = 'lobby'; MP.myId = 'host';
+      MP.players = [{ id: 'host', name: MP.myName, color: 0 }];
+      MP.settings.track = currentLevelIndex; MP.settings.diff = aiDifficulty;
+      mpStatus('Room open — send the code to your friends', 'ok');
+      mpRenderLobby();
+      // Lobby heartbeat + drop guests that went silent (closed the tab, lost internet…)
+      clearInterval(MP.beat);
+      MP.beat = setInterval(() => {
+        if (!MP.active || !MP.isHost) return;
+        if (MP.phase === 'lobby') mpBroadcast({ type: 'lobby', players: MP.players, settings: MP.settings, phase: MP.phase, code: MP.code });
+        const now = performance.now();
+        Object.values(MP.conns).forEach(c => { if (now - c.lastSeen > 10000) mpHostDropPlayer(c.id); });
+      }, 2500);
     }
 
-    function mpBroadcast(msg, exceptId) {
-      Object.entries(MP.conns).forEach(([id, c]) => { if (id !== exceptId && c.open) c.send(msg); });
+    function mpBroadcast(msg) {
+      if (MP.isHost) mpPub(MP.base + '/all', msg);
     }
     function mpBroadcastLobby() {
       mpBroadcast({ type: 'lobby', players: MP.players, settings: MP.settings, phase: MP.phase, code: MP.code });
@@ -4014,22 +4060,27 @@
     }
 
     function mpHostOnData(conn, d) {
-      if (!d || typeof d !== 'object') return;
       if (d.type === 'hello') {
-        if (MP.phase === 'racing') { conn.send({ type: 'reject', reason: 'A race is in progress — try again when it ends.' }); setTimeout(() => conn.close(), 300); return; }
-        if (MP.players.length >= 4) { conn.send({ type: 'reject', reason: 'That room is full (4 drivers).' }); setTimeout(() => conn.close(), 300); return; }
+        if (MP.conns[conn.id]) { conn.send({ type: 'welcome', id: conn.id }); return; }   // repeated hello
+        if (MP.phase === 'racing') { conn.send({ type: 'reject', reason: 'A race is in progress — try again when it ends.' }); return; }
+        if (MP.players.length >= 4) { conn.send({ type: 'reject', reason: 'That room is full (4 drivers).' }); return; }
         const used = MP.players.map(p => p.color);
         const color = [0, 1, 2, 3].find(c => !used.includes(c));
-        MP.conns[conn.peer] = conn;
-        MP.players.push({ id: conn.peer, name: mpCleanName(d.name), color });
-        conn.send({ type: 'welcome', id: conn.peer });
+        MP.conns[conn.id] = conn;
+        MP.players.push({ id: conn.id, name: mpCleanName(d.name), color });
+        conn.send({ type: 'welcome', id: conn.id });
         mpBroadcastLobby();
         mpStatus(`${mpCleanName(d.name)} joined`, 'ok');
-      } else if (d.type === 'st' && MP.phase === 'racing') {
-        mpReceiveRemoteState(conn.peer, d.s);
-      } else if (d.type === 'bye') {
-        mpHostDropPlayer(conn.peer);
+        return;
       }
+      if (!MP.conns[conn.id]) return;                       // ignore anyone who has not joined
+      if (d.type === 'st' && MP.phase === 'racing') mpReceiveRemoteState(conn.id, d.s);
+      else if (d.type === 'ping') {
+        conn.send({ type: 'pong', ts: d.ts });
+        const p = MP.players.find(q => q.id === conn.id);
+        if (p && typeof d.rtt === 'number' && p.ping !== Math.round(d.rtt)) { p.ping = Math.round(d.rtt); if (MP.phase === 'lobby') mpRenderLobby(); }
+      }
+      else if (d.type === 'bye') mpHostDropPlayer(conn.id);
     }
 
     function mpHostDropPlayer(id) {
@@ -4056,48 +4107,81 @@
     }
 
     // ---------------- joining ----------------
-    function mpJoin() {
-      if (typeof Peer === 'undefined') { mpStatus('Online library failed to load — check your internet connection.', 'error'); return; }
+    async function mpJoin() {
+      if (mpNeedsLib() || MP.connecting || MP.active) return;
       const code = document.getElementById('mp-code').value.trim().toUpperCase();
       if (code.length !== 5) { mpStatus('Enter the 5-character room code', 'error'); return; }
       MP.myName = mpCleanName(document.getElementById('mp-name').value);
       try { localStorage.setItem('mkc_name', MP.myName); } catch (e) {}
-      mpStatus('Connecting…');
-      const peer = new Peer();
-      MP.peer = peer;
-      peer.on('open', () => {
-        const conn = peer.connect(MP_PREFIX + code, { reliable: true });
-        MP.hostConn = conn;
-        conn.on('open', () => conn.send({ type: 'hello', name: MP.myName }));
-        conn.on('data', mpGuestOnData);
-        conn.on('close', () => { if (MP.hostConn === conn) mpLeave('The host closed the room.'); });
-        clearTimeout(MP.joinTimer);
-        MP.joinTimer = setTimeout(() => { if (!MP.active) { mpStatus('Could not reach that room. Check the code and try again.', 'error'); mpTeardown(); } }, 12000);
-      });
-      peer.on('error', e => {
-        if (e.type === 'peer-unavailable') { mpStatus('No room with that code is open.', 'error'); mpTeardown(); return; }
-        mpStatus('Connection problem: ' + (e.type || e.message), 'error');
-      });
+      MP.connecting = true;
+      const id = mpRandId(), base = mpRoomTopic(code);
+      // The host may be on either relay: ask on each one until the host answers
+      for (let i = 0; i < MP_BROKERS.length && !MP.active; i++) {
+        mpStatus(i === 0 ? 'Connecting…' : 'Still looking for the room…');
+        let client;
+        try { client = await mpConnectBroker(MP_BROKERS[i], { topic: base + '/h', payload: JSON.stringify({ type: 'bye', from: id }), qos: 0, retain: false }); }
+        catch (e) { continue; }
+        const welcomed = await new Promise(resolve => {
+          const timer = setTimeout(() => resolve(false), 7000);
+          client.on('message', (topic, buf) => {
+            const d = mpParse(buf);
+            if (!d) return;
+            if (!MP.active && d.type === 'welcome') { clearTimeout(timer); MP.client = client; resolve(true); }
+            if (!MP.active && d.type === 'reject') { clearTimeout(timer); mpStatus(d.reason, 'error'); resolve('rejected'); }
+            if (MP.client === client) mpGuestOnData(d);
+          });
+          client.subscribe([base + '/g/' + id, base + '/all'], () => mpPubVia(client, base + '/h', { type: 'hello', from: id, name: MP.myName }));
+        });
+        if (welcomed === true) {
+          MP.base = base; MP.code = code;
+          MP.hostConn = { open: true, send: obj => mpPub(base + '/h', Object.assign({ from: id }, obj)) };
+          MP.active = true; MP.isHost = false; MP.myId = id; MP.phase = 'lobby'; MP.lastHost = performance.now();
+          mpStatus('Joined! Waiting for the host…', 'ok');
+          client.on('reconnect', () => mpStatus('Connection hiccup — reconnecting…'));
+          client.on('connect', () => { if (MP.active) { client.subscribe([base + '/g/' + id, base + '/all']); mpStatus('Reconnected', 'ok'); } });
+          // Ping the host every 2 s (shows your ping in the lobby) and notice if the host disappears
+          clearInterval(MP.beat);
+          MP.beat = setInterval(() => {
+            if (!MP.active || MP.isHost) return;
+            MP.hostConn.send({ type: 'ping', ts: performance.now(), rtt: MP.rtt });
+            if (performance.now() - MP.lastHost > 10000) mpLeave('Lost connection to the host.');
+          }, 2000);
+          break;
+        }
+        try { client.end(true); } catch (e) {}
+        if (welcomed === 'rejected') { MP.connecting = false; return; }
+      }
+      MP.connecting = false;
+      if (!MP.active) mpStatus('No open room with that code. Check the code and make sure the host is still in the lobby.', 'error');
     }
+    function mpPubVia(client, topic, obj) { client.publish(topic, JSON.stringify(obj), { qos: 0 }); }
 
     function mpGuestOnData(d) {
       if (!d || typeof d !== 'object') return;
-      if (d.type === 'welcome') {
-        clearTimeout(MP.joinTimer);
-        MP.active = true; MP.isHost = false; MP.myId = d.id; MP.phase = 'lobby';
-        mpStatus('Joined! Waiting for the host…', 'ok');
-      } else if (d.type === 'reject') {
-        mpStatus(d.reason, 'error'); mpTeardown();
+      MP.lastHost = performance.now();
+      if (d.type === 'hostgone') {
+        mpLeave('The host closed the room.');
+      } else if (d.type === 'pong') {
+        MP.rtt = performance.now() - d.ts;
+        const me = MP.players.find(p => p.id === MP.myId);
+        if (me) { me.ping = Math.round(MP.rtt); if (MP.phase === 'lobby') mpRenderLobby(); }
       } else if (d.type === 'lobby') {
         const wasRacing = MP.phase === 'racing';
+        const myPing = (MP.players.find(p => p.id === MP.myId) || {}).ping;
         MP.players = d.players; MP.settings = d.settings; MP.code = d.code;
+        const me = MP.players.find(p => p.id === MP.myId);
+        // (two lobby updates in a row without us = really removed; one could be an old, delayed message)
+        MP.missing = !me && MP.active ? (MP.missing || 0) + 1 : 0;
+        if (MP.missing >= 2) { mpLeave('You were removed from the room (connection timed out).'); return; }
+        if (!me) return;
+        if (me && myPing !== undefined) me.ping = myPing;
         // anybody who left mid-race disappears from the track
         Object.keys(MP.remotes).forEach(id => { if (!MP.players.some(p => p.id === id)) mpRemoveRemote(id); });
         if (d.phase === 'lobby' && wasRacing) { MP.phase = 'lobby'; mpBackToLobbyView(); }
         else if (d.phase !== 'racing') MP.phase = d.phase;
         mpRenderLobby();
       } else if (d.type === 'start') {
-        mpStartRace(d);
+        if (d.assign && d.assign[MP.myId] !== undefined) mpStartRace(d);
       } else if (d.type === 'snap' && MP.phase === 'racing') {
         const now = performance.now();
         (d.p || []).forEach(s => { if (s.id !== MP.myId) mpReceiveRemoteState(s.id, s); });
@@ -4263,12 +4347,15 @@
     }
 
     function mpTeardown() {
-      clearTimeout(MP.joinTimer);
-      try { if (MP.hostConn && MP.hostConn.open) MP.hostConn.send({ type: 'bye' }); } catch (e) {}
-      try { Object.values(MP.conns).forEach(c => c.close()); } catch (e) {}
-      try { if (MP.peer) MP.peer.destroy(); } catch (e) {}
+      clearInterval(MP.beat);
+      try {
+        if (MP.isHost) mpBroadcast({ type: 'hostgone' });
+        else if (MP.hostConn) MP.hostConn.send({ type: 'bye' });
+      } catch (e) {}
+      const c = MP.client;
+      if (c) setTimeout(() => { try { c.end(true); } catch (e) {} }, 150);   // let the goodbye go out first
       Object.keys(MP.remotes).forEach(id => mpRemoveRemote(id));
-      Object.assign(MP, { active: false, isHost: false, phase: 'idle', peer: null, conns: {}, hostConn: null, myId: null, players: [], botNet: [], lastStart: null });
+      Object.assign(MP, { active: false, isHost: false, phase: 'idle', client: null, base: '', conns: {}, hostConn: null, myId: null, players: [], botNet: [], lastStart: null, rtt: undefined });
       mpRenderLobby();
     }
 
